@@ -1,0 +1,88 @@
+﻿@page "/fetchproducts"
+@using System.Text.Json
+@using SharedModels
+@inject HttpClient Http
+
+<h3>Product List</h3>
+
+@if (isLoading)
+{
+    <p>Loading products...</p>
+}
+else if (!string.IsNullOrEmpty(errorMessage))
+{
+    <p class="text-danger">Error: @errorMessage</p>
+}
+else if (products?.Length > 0)
+{
+    <ul>
+        @foreach (var product in products)
+        {
+            <li>
+                <strong>@product.Name</strong> - $@product.Price (Stock: @product.Stock)
+                <br />
+                <em>Category:</em> @product.Category?.Name
+            </li>
+        }
+    </ul>
+}
+else
+{
+    <p>No products available.</p>
+}
+
+@code {
+    private Product[]? products;
+    private bool isLoading = true;
+    private string? errorMessage;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var req = new HttpRequestMessage(HttpMethod.Get, "https://localhost:5136/api/productlist");
+            req.Headers.TryAddWithoutValidation("If-None-Match", "\"v1-products\"");
+
+            var response = await Http.SendAsync(req);
+
+            if (response.StatusCode == System.Net.HttpStatusCode.NotModified)
+            {
+                // Do nothing — but only if products were already populated
+                if (products == null || products.Length == 0)
+                {
+                    errorMessage = "Product data not cached — server returned 304.";
+                }
+            }
+            else
+            {
+                response.EnsureSuccessStatusCode();
+                var json = await response.Content.ReadAsStringAsync();
+                products = JsonSerializer.Deserialize<Product[]>(json, new JsonSerializerOptions
+                {
+                    PropertyNameCaseInsensitive = true
+                }) ?? Array.Empty<Product>();
+            }
+        }
+        catch (TaskCanceledException)
+        {
+            errorMessage = "The request timed out.";
+        }
+        catch (HttpRequestException ex)
+        {
+            errorMessage = $"Network error: {ex.Message}";
+        }
+        catch (JsonException ex)
+        {
+            errorMessage = $"Invalid JSON: {ex.Message}";
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"Unexpected error: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+}
